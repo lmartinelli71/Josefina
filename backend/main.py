@@ -12,7 +12,17 @@ from backend.adapters.outbound.websocket_caption_publisher import (
 
 
 CHUNK_MS = 100
+PCM_SAMPLE_RATE = 16000
+PCM_CHANNELS = 1
+PCM_SAMPLE_WIDTH = 2
 
+PCM_CHUNK_BYTES = int(
+    PCM_SAMPLE_RATE
+    * PCM_CHANNELS
+    * PCM_SAMPLE_WIDTH
+    * CHUNK_MS
+    / 1000
+)
 
 app = FastAPI(
     title="Josefina",
@@ -200,13 +210,191 @@ async def caption_websocket(
     )
 
     try:
-
         while True:
-            await websocket.receive()
+            message = await websocket.receive()
 
-    except WebSocketDisconnect:
+            if message["type"] == "websocket.disconnect":
+                break
 
+    finally:
         caption_publisher.disconnect(
             session_id=session_id,
             websocket=websocket,
         )
+
+
+# ---------------------------------
+# WEBSOCKET DE AUDIO
+# ---------------------------------
+
+@app.websocket("/ws/audio/{session_id}")
+async def audio_websocket(
+    websocket: WebSocket,
+    session_id: str,
+):
+    await websocket.accept()
+
+    print(
+        f"[{session_id}] "
+        f"cliente de audio conectado",
+        flush=True,
+    )
+
+    # ---------------------------------
+    # PREPARAMOS LA SESIÓN
+    # ---------------------------------
+
+    if session_id not in session_manager.sessions:
+        session_manager.create_session(
+            session_id=session_id,
+            name="Sesión en vivo Josefina",
+            source_language="en",
+            target_languages=["es"],
+        )
+
+    if session_id not in session_manager.runtimes:
+        runtime = session_manager.start_session(
+            session_id
+        )
+    else:
+        runtime = session_manager.get_runtime(
+            session_id
+        )
+
+    # Iniciamos el consumidor si todavía
+    # no está corriendo.
+    if (
+        runtime.consumer_task is None
+        or runtime.consumer_task.done()
+    ):
+        runtime.consumer_task = asyncio.create_task(
+            orchestrator.consume_audio(
+                session_id
+            )
+        )
+
+    # ---------------------------------
+    # FFMPEG
+    # WebM/Opus -> PCM s16le 16 kHz mono
+    # ---------------------------------
+
+    ffmpeg = await asyncio.create_subprocess_exec(
+        "ffmpeg",
+        "-loglevel",
+        "error",
+
+        # entrada desde stdin
+        "-i",
+        "pipe:0",
+
+        # sin video
+        "-vn",
+
+        # mono
+        "-ac",
+        str(PCM_CHANNELS),
+
+        # 16 kHz
+        "-ar",
+        str(PCM_SAMPLE_RATE),
+
+        # PCM signed 16-bit little endian
+        "-f",
+        "s16le",
+
+        # salida a stdout
+        "pipe:1",
+
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    # ---------------------------------
+    # TAREA:
+    # FFMPEG -> AUDIO QUEUE
+    # ---------------------------------
+
+    async def read_pcm():
+        try:
+            while True:
+                pcm_chunk = await ffmpeg.stdout.read(
+                    PCM_CHUNK_BYTES
+                )
+
+                if not pcm_chunk:
+                    break
+
+                await runtime.audio_queue.put(
+                    pcm_chunk
+                )
+
+                print(
+                    f"[{session_id}] "
+                    f"PCM -> queue: "
+                    f"{len(pcm_chunk)} bytes",
+                    flush=True,
+                )
+
+        except asyncio.CancelledError:
+            pass
+
+    pcm_task = asyncio.create_task(
+        read_pcm()
+    )
+
+    # ---------------------------------
+    # NAVEGADOR -> FFMPEG
+    # ---------------------------------
+
+    try:
+        while True:
+            data = await websocket.receive_bytes()
+
+            print(
+                f"[{session_id}] "
+                f"WebM recibido: "
+                f"{len(data)} bytes",
+                flush=True,
+            )
+
+            if ffmpeg.stdin is not None:
+                ffmpeg.stdin.write(data)
+
+                await ffmpeg.stdin.drain()
+
+    except WebSocketDisconnect:
+
+        print(
+            f"[{session_id}] "
+            f"cliente de audio desconectado",
+            flush=True,
+        )
+
+    finally:
+
+        # Cerramos la entrada de ffmpeg.
+        if ffmpeg.stdin is not None:
+            try:
+                ffmpeg.stdin.close()
+            except Exception:
+                pass
+
+        # Esperamos que termine de procesar
+        # lo que quede en el buffer.
+        try:
+            await asyncio.wait_for(
+                ffmpeg.wait(),
+                timeout=2.0,
+            )
+        except asyncio.TimeoutError:
+            ffmpeg.kill()
+            await ffmpeg.wait()
+
+        if not pcm_task.done():
+            pcm_task.cancel()
+
+        try:
+            await pcm_task
+        except asyncio.CancelledError:
+            pass
