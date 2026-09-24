@@ -16,7 +16,8 @@ class GeminiAdapter(SpeechEngine):
     Gestiona:
     - traducción de texto;
     - transcripción batch de archivos;
-    - transcripción Live de audio PCM en tiempo real.
+    - transcripción Live de audio PCM;
+    - traducción Live en tiempo real.
     """
 
     def __init__(self):
@@ -37,7 +38,9 @@ class GeminiAdapter(SpeechEngine):
         target_language: str,
     ) -> str:
         """
-        Traduce un texto al idioma solicitado utilizando Gemini.
+        Traduce un texto al idioma solicitado.
+
+        Se mantiene como fallback y para pruebas.
         """
 
         prompt = f"""
@@ -119,13 +122,9 @@ TEXT:
 
     def live_connection(self):
         """
-        Devuelve el context manager para abrir una sesión persistente
-        de Gemini Live dedicada a transcripción en tiempo real.
+        Conexión Live dedicada solamente a transcripción.
 
-        Uso:
-
-            async with adapter.live_connection() as live_session:
-                ...
+        Se mantiene como fallback y para pruebas.
         """
 
         config = types.LiveConnectConfig(
@@ -137,6 +136,39 @@ TEXT:
 
         return self.client.aio.live.connect(
             model="gemini-3.5-transcribe-live",
+            config=config,
+        )
+
+    def live_translate_connection(
+        self,
+        target_language: str = "es",
+    ):
+        """
+        Abre una conexión persistente con Gemini Live Translate.
+
+        Recibe audio continuo y genera:
+        - transcripción del idioma original;
+        - traducción incremental al idioma destino.
+        """
+
+        config = types.LiveConnectConfig(
+            response_modalities=["AUDIO"],
+
+            input_audio_transcription=
+                types.AudioTranscriptionConfig(),
+
+            output_audio_transcription=
+                types.AudioTranscriptionConfig(),
+
+            translation_config=
+                types.TranslationConfig(
+                    target_language_code=target_language,
+                    echo_target_language=True,
+                ),
+        )
+
+        return self.client.aio.live.connect(
+            model="gemini-3.5-live-translate-preview",
             config=config,
         )
 
@@ -177,9 +209,9 @@ TEXT:
     ):
         """
         Produce transcripciones parciales y finales
-        desde Gemini Live.
+        desde Gemini Live Transcribe.
 
-        Devuelve diccionarios con:
+        Devuelve:
         {
             "type": "interim" | "final",
             "text": "..."
@@ -187,6 +219,7 @@ TEXT:
         """
 
         async for message in live_session.receive():
+
             server_content = getattr(
                 message,
                 "server_content",
@@ -196,7 +229,6 @@ TEXT:
             if server_content is None:
                 continue
 
-            # Transcripción parcial de baja latencia
             interim = getattr(
                 server_content,
                 "interim_input_transcription",
@@ -216,7 +248,6 @@ TEXT:
                         "text": text.strip(),
                     }
 
-            # Transcripción final
             final = getattr(
                 server_content,
                 "input_transcription",
@@ -233,6 +264,76 @@ TEXT:
                 if text:
                     yield {
                         "type": "final",
+                        "text": text.strip(),
+                    }
+
+    async def receive_live_translation(
+        self,
+        live_session,
+    ):
+        """
+        Produce eventos normalizados de Gemini Live Translate.
+
+        Devuelve:
+        {
+            "type": "source",
+            "text": "..."
+        }
+
+        o:
+
+        {
+            "type": "translation",
+            "text": "..."
+        }
+        """
+
+        async for message in live_session.receive():
+
+            server_content = getattr(
+                message,
+                "server_content",
+                None,
+            )
+
+            if server_content is None:
+                continue
+
+            source = getattr(
+                server_content,
+                "input_transcription",
+                None,
+            )
+
+            if source is not None:
+                text = getattr(
+                    source,
+                    "text",
+                    None,
+                )
+
+                if text:
+                    yield {
+                        "type": "source",
+                        "text": text.strip(),
+                    }
+
+            translation = getattr(
+                server_content,
+                "output_transcription",
+                None,
+            )
+
+            if translation is not None:
+                text = getattr(
+                    translation,
+                    "text",
+                    None,
+                )
+
+                if text:
+                    yield {
+                        "type": "translation",
                         "text": text.strip(),
                     }
 
@@ -281,10 +382,10 @@ TEXT:
         chunk: bytes,
     ) -> None:
         """
-        Puerto SpeechEngine requerido por StreamingOrchestrator.
+        Método requerido por SpeechEngine.
 
-        La conexión Live todavía se mantiene fuera de este método
-        porque pertenece al SessionRuntime de cada sesión activa.
+        Más adelante conectaremos este método con
+        SessionRuntime y la conexión Live de cada sesión.
         """
 
         pass
