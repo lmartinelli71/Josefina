@@ -33,6 +33,13 @@ async def feed_audio(
 
             await runtime.audio_queue.put(chunk)
 
+            if runtime.audio_queue.qsize() > 1:
+                print(
+                    f"[QUEUE] backlog: "
+                    f"{runtime.audio_queue.qsize()} chunks",
+                    flush=True,
+                )
+
             await asyncio.sleep(
                 CHUNK_MS / 1000
             )
@@ -71,21 +78,32 @@ async def main():
         )
     )
 
+    # Esperamos a que Gemini Live esté conectado
+    # antes de comenzar a enviar audio.
+    runtime = manager.get_runtime(
+        session_id
+    )
+
+    while runtime.speech_connection is None:
+        await asyncio.sleep(0.05)
+
+    print(
+        "Gemini Live conectado. "
+        "Comenzando audio...\n",
+        flush=True,
+    )
+
     await feed_audio(
         manager=manager,
         session_id=session_id,
         wav_path="english.wav",
     )
 
-    runtime = manager.get_runtime(
-        session_id
-    )
-
     await runtime.audio_queue.join()
 
-    # Le damos unos segundos a Gemini
-    # para terminar de devolver resultados.
-    await asyncio.sleep(5)
+    # Por ahora mantenemos esta espera
+    # para observar cuánto queda pendiente.
+    await asyncio.sleep(15)
 
     orchestrator_task.cancel()
 
