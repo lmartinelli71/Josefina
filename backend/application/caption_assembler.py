@@ -1,69 +1,140 @@
-import time
-
-
 class CaptionAssembler:
     """
-    Administra el texto parcial que llega desde Gemini Live
-    y decide cuándo conviene solicitar una nueva traducción.
+    Construye el subtítulo traducido que verá el usuario.
 
-    Los parciales actualizan continuamente el subtítulo.
-    La traducción se limita en frecuencia para evitar una llamada
-    a Gemini por cada palabra recibida.
+    - Actualiza el texto mientras Gemini va traduciendo.
+    - Prefiere cerrar en puntos, ! o ?.
+    - Si el texto crece demasiado, intenta cortar en una pausa natural.
+    - Nunca acumula toda la conferencia en un único string.
     """
 
     def __init__(
         self,
-        translation_interval: float = 1.0,
+        min_chars: int = 50,
+        max_chars: int = 140,
     ):
-        self.translation_interval = translation_interval
+        self.min_chars = min_chars
+        self.max_chars = max_chars
 
         self.current_text = ""
-        self.last_translated_text = ""
-        self.last_translation_time = 0.0
 
-    def update(
+    def add_translation(
         self,
-        event_type: str,
-        text: str,
+        fragment: str,
     ) -> dict:
-        """
-        Procesa una transcripción parcial o final.
 
-        Devuelve información para decidir:
-        - qué texto mostrar;
-        - si debe traducirse;
-        - si el segmento es definitivo.
-        """
+        fragment = fragment.strip()
 
-        self.current_text = text
+        if not fragment:
+            return {
+                "current": self.current_text,
+                "closed_segments": [],
+            }
 
-        now = time.monotonic()
-
-        is_final = event_type == "final"
-
-        enough_time_passed = (
-            now - self.last_translation_time
-            >= self.translation_interval
+        self.current_text = self._append_fragment(
+            self.current_text,
+            fragment,
         )
 
-        text_changed = (
-            text != self.last_translated_text
-        )
+        closed_segments = []
 
-        should_translate = (
-            text_changed
-            and (
-                is_final
-                or enough_time_passed
+        while True:
+
+            cut_position = self._find_cut_position(
+                self.current_text
             )
-        )
 
-        if should_translate:
-            self.last_translation_time = now
-            self.last_translated_text = text
+            if cut_position is None:
+                break
+
+            closed_text = self.current_text[
+                :cut_position
+            ].strip()
+
+            remainder = self.current_text[
+                cut_position:
+            ].strip()
+
+            if closed_text:
+                closed_segments.append(
+                    closed_text
+                )
+
+            self.current_text = remainder
 
         return {
-            "text": text,
-            "is_final": is_final,
-            "should_translate": should_translate,
+            "current": self.current_text,
+            "closed_segments": closed_segments,
         }
+
+    def current(self) -> str:
+        return self.current_text
+
+    def reset(self) -> None:
+        self.current_text = ""
+
+    def _find_cut_position(
+        self,
+        text: str,
+    ):
+        """
+        Busca un lugar natural para cerrar el subtítulo.
+        """
+
+        if len(text) < self.min_chars:
+            return None
+
+        # Primero buscamos final natural de oración.
+        for index in range(
+            self.min_chars,
+            len(text),
+        ):
+            if text[index] in ".!?":
+                return index + 1
+
+        # Todavía no es demasiado largo.
+        if len(text) < self.max_chars:
+            return None
+
+        # Si superamos max_chars, buscamos una pausa
+        # cercana al límite.
+        search_area = text[
+            self.min_chars:self.max_chars
+        ]
+
+        for separator in [
+            ", ",
+            "; ",
+            ": ",
+            " ",
+        ]:
+            position = search_area.rfind(
+                separator
+            )
+
+            if position != -1:
+
+                absolute_position = (
+                    self.min_chars
+                    + position
+                    + len(separator)
+                )
+
+                return absolute_position
+
+        # Último recurso.
+        return self.max_chars
+
+    def _append_fragment(
+        self,
+        current: str,
+        fragment: str,
+    ) -> str:
+
+        if not current:
+            return fragment
+
+        if fragment[0] in ".,;:!?)]}":
+            return current + fragment
+
+        return current + " " + fragment

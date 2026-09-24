@@ -1,21 +1,22 @@
 import asyncio
 
 from backend.application.session_manager import SessionManager
+from backend.application.caption_assembler import CaptionAssembler
 
 
 class StreamingOrchestrator:
     """
-    Coordina el flujo continuo de audio de una sesión activa.
+    Coordina el flujo continuo de audio.
 
-    Flujo:
-
-        audio_queue
-            ↓
-        Gemini Live Translate
-            ↓
-        transcripción original
-            ↓
-        traducción
+    audio_queue
+        ↓
+    Gemini Live Translate
+        ↓
+    original + traducción
+        ↓
+    CaptionAssembler
+        ↓
+    subtítulo traducido en vivo
     """
 
     def __init__(
@@ -30,10 +31,6 @@ class StreamingOrchestrator:
         self,
         session_id: str,
     ):
-        """
-        Mantiene una conexión persistente con Gemini Live Translate
-        y consume continuamente los chunks de audio de la cola FIFO.
-        """
 
         session = self.session_manager.get_session(
             session_id
@@ -45,25 +42,33 @@ class StreamingOrchestrator:
 
         if not session.target_languages:
             raise RuntimeError(
-                "La sesión no tiene un idioma destino configurado."
+                "La sesión no tiene idioma destino."
             )
 
-        # Para el MVP usamos un idioma destino.
-        target_language = session.target_languages[0]
+        target_language = (
+            session.target_languages[0]
+        )
 
-        async with self.speech_engine.live_translate_connection(
-            target_language=target_language
+        assembler = CaptionAssembler()
+
+        async with (
+            self.speech_engine
+            .live_translate_connection(
+                target_language=target_language
+            )
         ) as live_session:
 
-            # Guardamos la conexión activa dentro del runtime.
-            runtime.speech_connection = live_session
+            runtime.speech_connection = (
+                live_session
+            )
 
-            # Mientras enviamos audio, otra tarea escucha
-            # las respuestas de Gemini.
-            receiver_task = asyncio.create_task(
-                self.receive_translations(
-                    session_id=session_id,
-                    live_session=live_session,
+            receiver_task = (
+                asyncio.create_task(
+                    self.receive_translations(
+                        session_id=session_id,
+                        live_session=live_session,
+                        assembler=assembler,
+                    )
                 )
             )
 
@@ -71,13 +76,20 @@ class StreamingOrchestrator:
 
                 while True:
 
-                    chunk = await runtime.audio_queue.get()
+                    chunk = (
+                        await runtime
+                        .audio_queue
+                        .get()
+                    )
 
                     try:
 
-                        await self.speech_engine.send_live_audio(
-                            live_session=live_session,
-                            chunk=chunk,
+                        await (
+                            self.speech_engine
+                            .send_live_audio(
+                                live_session=live_session,
+                                chunk=chunk,
+                            )
                         )
 
                     finally:
@@ -86,9 +98,11 @@ class StreamingOrchestrator:
 
             except asyncio.CancelledError:
 
-                # La sesión está siendo detenida.
-                await self.speech_engine.end_live_audio(
-                    live_session=live_session
+                await (
+                    self.speech_engine
+                    .end_live_audio(
+                        live_session=live_session
+                    )
                 )
 
                 raise
@@ -109,33 +123,60 @@ class StreamingOrchestrator:
         self,
         session_id: str,
         live_session,
+        assembler: CaptionAssembler,
     ):
         """
-        Consume los eventos de Gemini Live Translate.
+        Recibe continuamente los eventos de Gemini.
 
-        Por ahora los imprimimos para validar el flujo.
-        En el siguiente paso estos eventos irán al
-        CaptionAssembler y luego al navegador.
+        El original se conserva como diagnóstico.
+        La traducción es la que controla
+        los subtítulos visibles.
         """
 
         async for event in (
-            self.speech_engine.receive_live_translation(
+            self.speech_engine
+            .receive_live_translation(
                 live_session
             )
         ):
 
             if event["type"] == "source":
 
+                # Solo diagnóstico.
                 print(
-                    f"[{session_id}] ORIGINAL: "
+                    f"\n[{session_id}] "
+                    f"ORIGINAL:\n"
                     f"{event['text']}",
                     flush=True,
                 )
 
             elif event["type"] == "translation":
 
-                print(
-                    f"[{session_id}] TRADUCCIÓN: "
-                    f"{event['text']}",
-                    flush=True,
+                result = (
+                    assembler.add_translation(
+                        event["text"]
+                    )
                 )
+
+                # Segmentos que acaban de terminar.
+                for closed_text in (
+                    result["closed_segments"]
+                ):
+
+                    print(
+                        f"\n[{session_id}] "
+                        f"SUBTÍTULO [CERRADO]:\n"
+                        f"{closed_text}",
+                        flush=True,
+                    )
+
+                # Este es el texto que irá
+                # cambiando en pantalla mientras habla.
+                if result["current"]:
+
+                    print(
+                        f"\n[{session_id}] "
+                        f"SUBTÍTULO [LIVE]:\n"
+                        f"{result['current']}",
+                        flush=True,
+                    )
