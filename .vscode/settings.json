@@ -1,0 +1,22 @@
+{
+  "python.terminal.activateEnvironment": true,
+  "python.venvPath": "${workspaceFolder}",
+  "python.envFile": "${workspaceFolder}/.env",
+
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/shared/src"
+  ],
+
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/venv_backend": true,
+    "**/.venv": true,
+    "**/node_modules": true,
+    "**/.next": true,
+    "**/.git": true
+  },
+
+  "explorer.compactFolders": false,
+  "editor.formatOnSave": true,
+  "git.ignoreLimitWarning": true
+}
