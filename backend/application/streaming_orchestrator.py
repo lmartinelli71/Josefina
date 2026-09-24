@@ -2,6 +2,7 @@ import asyncio
 
 from backend.application.session_manager import SessionManager
 from backend.application.caption_assembler import CaptionAssembler
+from backend.ports.caption_publisher import CaptionPublisher
 
 
 class StreamingOrchestrator:
@@ -17,15 +18,21 @@ class StreamingOrchestrator:
     CaptionAssembler
         ↓
     subtítulo traducido en vivo
+        ↓
+    CaptionPublisher (opcional)
+        ↓
+    navegador
     """
 
     def __init__(
         self,
         session_manager: SessionManager,
         speech_engine,
+        caption_publisher: CaptionPublisher | None = None,
     ):
         self.session_manager = session_manager
         self.speech_engine = speech_engine
+        self.caption_publisher = caption_publisher
 
     async def consume_audio(
         self,
@@ -129,8 +136,15 @@ class StreamingOrchestrator:
         Recibe continuamente los eventos de Gemini.
 
         El original se conserva como diagnóstico.
-        La traducción es la que controla
-        los subtítulos visibles.
+
+        La traducción:
+        - alimenta CaptionAssembler;
+        - sigue apareciendo en consola;
+        - si existe un CaptionPublisher,
+          también se envía al navegador.
+
+        La publicación al navegador se realiza
+        fuera del camino crítico de Gemini.
         """
 
         async for event in (
@@ -158,7 +172,10 @@ class StreamingOrchestrator:
                     )
                 )
 
-                # Segmentos que acaban de terminar.
+                # ---------------------------------
+                # SEGMENTOS CERRADOS
+                # ---------------------------------
+
                 for closed_text in (
                     result["closed_segments"]
                 ):
@@ -170,8 +187,19 @@ class StreamingOrchestrator:
                         flush=True,
                     )
 
-                # Este es el texto que irá
-                # cambiando en pantalla mientras habla.
+                    self._publish_without_blocking(
+                        session_id=session_id,
+                        payload={
+                            "type": "caption",
+                            "status": "closed",
+                            "text": closed_text,
+                        },
+                    )
+
+                # ---------------------------------
+                # SUBTÍTULO LIVE
+                # ---------------------------------
+
                 if result["current"]:
 
                     print(
@@ -180,3 +208,59 @@ class StreamingOrchestrator:
                         f"{result['current']}",
                         flush=True,
                     )
+
+                    self._publish_without_blocking(
+                        session_id=session_id,
+                        payload={
+                            "type": "caption",
+                            "status": "live",
+                            "text": result["current"],
+                        },
+                    )
+
+    def _publish_without_blocking(
+        self,
+        session_id: str,
+        payload: dict,
+    ) -> None:
+        """
+        Publica el subtítulo sin bloquear
+        el procesamiento de Gemini.
+
+        Si no hay publisher configurado,
+        simplemente no hace nada.
+        """
+
+        if self.caption_publisher is None:
+            return
+
+        asyncio.create_task(
+            self._safe_publish(
+                session_id=session_id,
+                payload=payload,
+            )
+        )
+
+    async def _safe_publish(
+        self,
+        session_id: str,
+        payload: dict,
+    ) -> None:
+        """
+        Evita que un error de WebSocket
+        afecte al pipeline de traducción.
+        """
+
+        try:
+            await self.caption_publisher.publish(
+                session_id=session_id,
+                payload=payload,
+            )
+
+        except Exception as exc:
+            print(
+                f"\n[{session_id}] "
+                f"Error publicando subtítulo: "
+                f"{exc}",
+                flush=True,
+            )
