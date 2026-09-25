@@ -1,7 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import {
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+
+import {
+  useParams,
+  useRouter,
+} from "next/navigation";
+
 
 type CaptionMessage = {
   type: string;
@@ -9,9 +18,14 @@ type CaptionMessage = {
   text: string;
 };
 
-export default function SessionPage() {
+
+export default function ProducerSessionPage() {
   const params = useParams();
-  const sessionId = params.sessionId as string;
+  const router = useRouter();
+
+  const sessionId =
+    params.sessionId as string;
+
 
   const [caption, setCaption] = useState(
     "Esperando subtítulos..."
@@ -21,7 +35,18 @@ export default function SessionPage() {
     "Conectando..."
   );
 
-  const [micActive, setMicActive] = useState(false);
+  const [micActive, setMicActive] =
+    useState(false);
+
+  const [viewerUrl, setViewerUrl] =
+    useState("");
+
+  const [copied, setCopied] =
+    useState(false);
+
+  const [closing, setClosing] =
+    useState(false);
+
 
   const mediaRecorderRef =
     useRef<MediaRecorder | null>(null);
@@ -32,36 +57,126 @@ export default function SessionPage() {
   const mediaStreamRef =
     useRef<MediaStream | null>(null);
 
-  const startMicrophone = async () => {
+
+  // --------------------------------
+  // LINK PARA VIEWERS
+  // --------------------------------
+
+  useEffect(() => {
+    if (!sessionId) {
+      return;
+    }
+
+    setViewerUrl(
+      `${window.location.origin}` +
+      `/session/${sessionId}/viewer`
+    );
+
+  }, [sessionId]);
+
+
+  // --------------------------------
+  // COPIAR LINK
+  // --------------------------------
+
+  const copyViewerLink = async () => {
     try {
-      // 1. Capturamos el micrófono
-      const stream =
-        await navigator.mediaDevices.getUserMedia({
-          audio: true,
-        });
-
-      mediaStreamRef.current = stream;
-
-      console.log("Micrófono conectado", stream);
-
-      // 2. Abrimos un WebSocket exclusivo para AUDIO
-      const audioSocket = new WebSocket(
-        `ws://127.0.0.1:8000/ws/audio/${sessionId}`
+      await navigator.clipboard.writeText(
+        viewerUrl
       );
 
-      audioSocket.binaryType = "arraybuffer";
+      setCopied(true);
 
-      audioSocket.onopen = () => {
-        console.log(
-          "WebSocket de audio conectado"
+      setTimeout(() => {
+        setCopied(false);
+      }, 2000);
+
+    } catch (error) {
+      console.error(
+        "No se pudo copiar el enlace:",
+        error
+      );
+    }
+  };
+
+
+  // --------------------------------
+  // LIMPIAR AUDIO LOCAL
+  // --------------------------------
+
+  const cleanupAudio = () => {
+    if (
+      mediaRecorderRef.current &&
+      mediaRecorderRef.current.state !==
+        "inactive"
+    ) {
+      mediaRecorderRef.current.stop();
+    }
+
+    mediaRecorderRef.current =
+      null;
+
+
+    if (
+      mediaStreamRef.current
+    ) {
+      mediaStreamRef.current
+        .getTracks()
+        .forEach((track) => {
+          track.stop();
+        });
+
+      mediaStreamRef.current =
+        null;
+    }
+
+
+    if (
+      audioSocketRef.current
+    ) {
+      audioSocketRef.current.close();
+
+      audioSocketRef.current =
+        null;
+    }
+  };
+
+
+  // --------------------------------
+  // INICIAR MICRÓFONO
+  // --------------------------------
+
+  const startMicrophone = async () => {
+    try {
+      const stream =
+        await navigator.mediaDevices
+          .getUserMedia({
+            audio: true,
+          });
+
+      mediaStreamRef.current =
+        stream;
+
+
+      const audioSocket =
+        new WebSocket(
+          `ws://127.0.0.1:8000/ws/audio/${sessionId}`
         );
 
+      audioSocket.binaryType =
+        "arraybuffer";
+
+
+      audioSocket.onopen = () => {
         setStatus(
           "Audio conectado al backend"
         );
       };
 
-      audioSocket.onerror = (error) => {
+
+      audioSocket.onerror = (
+        error
+      ) => {
         console.error(
           "Error en WebSocket de audio:",
           error
@@ -72,70 +187,63 @@ export default function SessionPage() {
         );
       };
 
+
       audioSocket.onclose = () => {
         console.log(
           "WebSocket de audio cerrado"
         );
       };
 
-      audioSocketRef.current = audioSocket;
 
-      // 3. MediaRecorder convierte el micrófono
-      // en pequeños bloques WebM/Opus
-      const mimeType =
-        "audio/webm;codecs=opus";
+      audioSocketRef.current =
+        audioSocket;
+
 
       const mediaRecorder =
         new MediaRecorder(
           stream,
           {
-            mimeType,
+            mimeType:
+              "audio/webm;codecs=opus",
           }
         );
 
-      console.log(
-        "Formato de audio:",
-        mediaRecorder.mimeType
-      );
 
       mediaRecorder.ondataavailable =
         async (event) => {
-          if (event.data.size === 0) {
+
+          if (
+            event.data.size === 0
+          ) {
             return;
           }
 
-          console.log(
-            "Chunk de audio:",
-            event.data.size,
-            "bytes"
-          );
-
-          // 4. Convertimos el Blob a bytes
           const buffer =
-            await event.data.arrayBuffer();
+            await event.data
+              .arrayBuffer();
 
-          // 5. Mandamos los bytes al backend
           if (
             audioSocket.readyState ===
             WebSocket.OPEN
           ) {
-            audioSocket.send(buffer);
-
-            console.log(
-              "Chunk enviado al backend:",
-              buffer.byteLength,
-              "bytes"
+            audioSocket.send(
+              buffer
             );
           }
         };
 
-      // Generamos un chunk cada 500 ms
+
       mediaRecorder.start(500);
 
       mediaRecorderRef.current =
         mediaRecorder;
 
       setMicActive(true);
+
+      setStatus(
+        "Micrófono activo"
+      );
+
     } catch (error) {
       console.error(
         "Error accediendo al micrófono:",
@@ -148,37 +256,77 @@ export default function SessionPage() {
     }
   };
 
+
+  // --------------------------------
+  // DETENER MICRÓFONO
+  // --------------------------------
+
   const stopMicrophone = () => {
-    // Detenemos MediaRecorder
-    if (
-      mediaRecorderRef.current &&
-      mediaRecorderRef.current.state !==
-        "inactive"
-    ) {
-      mediaRecorderRef.current.stop();
-    }
-
-    // Cerramos las pistas físicas
-    // del micrófono
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current
-        .getTracks()
-        .forEach((track) => {
-          track.stop();
-        });
-
-      mediaStreamRef.current = null;
-    }
-
-    // Cerramos WebSocket de audio
-    if (audioSocketRef.current) {
-      audioSocketRef.current.close();
-      audioSocketRef.current = null;
-    }
+    cleanupAudio();
 
     setMicActive(false);
-    setStatus("Micrófono detenido");
+
+    setStatus(
+      "Micrófono detenido"
+    );
   };
+
+
+  // --------------------------------
+  // CERRAR SESIÓN
+  // --------------------------------
+
+  const closeSession = async () => {
+    try {
+      setClosing(true);
+
+      cleanupAudio();
+
+      setMicActive(false);
+
+      const response = await fetch(
+        `http://127.0.0.1:8000/sessions/${sessionId}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          "No se pudo cerrar la sesión"
+        );
+      }
+
+      router.push(
+        "/producer"
+      );
+
+    } catch (error) {
+      console.error(
+        "Error cerrando sesión:",
+        error
+      );
+
+      setStatus(
+        "No se pudo cerrar la sesión"
+      );
+
+      setClosing(false);
+    }
+  };
+
+
+  // --------------------------------
+  // VOLVER AL PANEL
+  // --------------------------------
+
+  const backToSessions = () => {
+    window.open(
+      "/producer",
+      "_blank"
+    );
+  };
+
 
   // --------------------------------
   // WEBSOCKET DE SUBTÍTULOS
@@ -189,42 +337,65 @@ export default function SessionPage() {
       return;
     }
 
-    const ws = new WebSocket(
-      `ws://127.0.0.1:8000/ws/captions/${sessionId}`
-    );
+    const ws =
+      new WebSocket(
+        `ws://127.0.0.1:8000/ws/captions/${sessionId}`
+      );
+
 
     ws.onopen = () => {
-      setStatus("Conectado");
+      setStatus(
+        "Conectado"
+      );
     };
 
-    ws.onmessage = (event) => {
-      const message: CaptionMessage =
-        JSON.parse(event.data);
 
-      if (message.type !== "caption") {
+    ws.onmessage = (
+      event
+    ) => {
+      const message:
+        CaptionMessage =
+        JSON.parse(
+          event.data
+        );
+
+      if (
+        message.type !==
+        "caption"
+      ) {
         return;
       }
 
-      setCaption(message.text);
+      setCaption(
+        message.text
+      );
 
-      if (message.status === "live") {
+      if (
+        message.status ===
+        "live"
+      ) {
         setStatus(
           "Traducción en vivo"
         );
       }
 
-      if (message.status === "closed") {
+      if (
+        message.status ===
+        "closed"
+      ) {
         setStatus(
           "Segmento completo"
         );
       }
     };
 
+
     ws.onclose = () => {
-      setStatus(
-        "Conexión de subtítulos cerrada"
+      console.log(
+        "WebSocket de subtítulos cerrado"
       );
     };
+
 
     ws.onerror = () => {
       setStatus(
@@ -232,35 +403,111 @@ export default function SessionPage() {
       );
     };
 
+
     return () => {
       ws.close();
     };
+
   }, [sessionId]);
+
+
+  // --------------------------------
+  // LIMPIAR MICRÓFONO SI SE CIERRA
+  // LA PÁGINA
+  // --------------------------------
+
+  useEffect(() => {
+    return () => {
+      cleanupAudio();
+    };
+  }, []);
+
 
   return (
     <main className="min-h-screen bg-black text-white flex items-center justify-center">
 
       <div className="w-full max-w-5xl px-8 text-center">
 
-        <div className="mb-10 text-lg text-gray-400">
+        <div className="mb-4 text-lg text-gray-400">
           Josefina · Traducción en vivo
         </div>
 
+
+        <div className="mb-8 text-sm text-gray-500">
+          Sesión: {sessionId}
+        </div>
+
+
+        <div className="mb-10 flex flex-wrap gap-3 justify-center">
+
+          <button
+            onClick={backToSessions}
+            className="rounded border border-gray-600 px-4 py-2"
+          >
+            Volver a sesiones
+          </button>
+
+
+          <button
+            onClick={closeSession}
+            disabled={closing}
+            className="rounded border border-red-500 px-4 py-2 text-red-400 disabled:opacity-50"
+          >
+            {closing
+              ? "Cerrando..."
+              : "Cerrar sesión"}
+          </button>
+
+        </div>
+
+
+        <div className="mb-12">
+
+          <div className="text-sm text-gray-400 mb-3">
+            Enlace para los viewers
+          </div>
+
+
+          <div className="flex flex-col md:flex-row gap-3 justify-center items-center">
+
+            <div className="rounded border border-gray-700 px-4 py-3 text-sm text-gray-300 break-all">
+              {viewerUrl}
+            </div>
+
+
+            <button
+              onClick={copyViewerLink}
+              className="rounded border border-white px-4 py-3 text-white font-medium"
+            >
+              {copied
+                ? "Copiado"
+                : "Copiar enlace"}
+            </button>
+
+          </div>
+
+        </div>
+
+
         <div className="min-h-48 flex items-center justify-center">
+
           <p className="text-4xl md:text-6xl font-semibold leading-tight">
             {caption}
           </p>
+
         </div>
+
 
         <div className="mt-10 flex gap-4 justify-center">
 
           <button
             onClick={startMicrophone}
-            disabled={micActive}
+            disabled={micActive || closing}
             className="rounded bg-white px-5 py-3 text-black font-medium disabled:opacity-50"
           >
             Iniciar micrófono
           </button>
+
 
           <button
             onClick={stopMicrophone}
@@ -271,6 +518,7 @@ export default function SessionPage() {
           </button>
 
         </div>
+
 
         <div className="mt-10 text-sm text-gray-500">
           {micActive
