@@ -59,7 +59,7 @@ export default function ProducerSessionPage() {
 
 
   // --------------------------------
-  // LINK PARA VIEWERS
+  // LINK VIEWER
   // --------------------------------
 
   useEffect(() => {
@@ -96,12 +96,16 @@ export default function ProducerSessionPage() {
         "No se pudo copiar el enlace:",
         error
       );
+
+      setStatus(
+        "No se pudo copiar el enlace"
+      );
     }
   };
 
 
   // --------------------------------
-  // LIMPIAR AUDIO LOCAL
+  // LIMPIAR AUDIO
   // --------------------------------
 
   const cleanupAudio = () => {
@@ -113,31 +117,24 @@ export default function ProducerSessionPage() {
       mediaRecorderRef.current.stop();
     }
 
-    mediaRecorderRef.current =
-      null;
+    mediaRecorderRef.current = null;
 
 
-    if (
-      mediaStreamRef.current
-    ) {
+    if (mediaStreamRef.current) {
       mediaStreamRef.current
         .getTracks()
         .forEach((track) => {
           track.stop();
         });
 
-      mediaStreamRef.current =
-        null;
+      mediaStreamRef.current = null;
     }
 
 
-    if (
-      audioSocketRef.current
-    ) {
+    if (audioSocketRef.current) {
       audioSocketRef.current.close();
 
-      audioSocketRef.current =
-        null;
+      audioSocketRef.current = null;
     }
   };
 
@@ -211,7 +208,6 @@ export default function ProducerSessionPage() {
 
       mediaRecorder.ondataavailable =
         async (event) => {
-
           if (
             event.data.size === 0
           ) {
@@ -284,6 +280,7 @@ export default function ProducerSessionPage() {
 
       setMicActive(false);
 
+
       const response = await fetch(
         `http://127.0.0.1:8000/sessions/${sessionId}`,
         {
@@ -291,11 +288,13 @@ export default function ProducerSessionPage() {
         }
       );
 
+
       if (!response.ok) {
         throw new Error(
           "No se pudo cerrar la sesión"
         );
       }
+
 
       router.push(
         "/producer"
@@ -317,25 +316,26 @@ export default function ProducerSessionPage() {
 
 
   // --------------------------------
-  // VOLVER AL PANEL
+  // VOLVER AL PANEL ORIGINAL
+  // SIN DETENER LA TRANSMISIÓN
   // --------------------------------
 
   const backToSessions = () => {
     window.open(
-      "/producer",
-      "_blank"
+      "http://localhost:3000/producer",
+      "josefina-production-panel"
     );
   };
 
-
   // --------------------------------
-  // WEBSOCKET DE SUBTÍTULOS
+  // WEBSOCKET SUBTÍTULOS
   // --------------------------------
 
   useEffect(() => {
     if (!sessionId) {
       return;
     }
+
 
     const ws =
       new WebSocket(
@@ -359,6 +359,7 @@ export default function ProducerSessionPage() {
           event.data
         );
 
+
       if (
         message.type !==
         "caption"
@@ -366,9 +367,11 @@ export default function ProducerSessionPage() {
         return;
       }
 
+
       setCaption(
         message.text
       );
+
 
       if (
         message.status ===
@@ -378,6 +381,7 @@ export default function ProducerSessionPage() {
           "Traducción en vivo"
         );
       }
+
 
       if (
         message.status ===
@@ -412,8 +416,8 @@ export default function ProducerSessionPage() {
 
 
   // --------------------------------
-  // LIMPIAR MICRÓFONO SI SE CIERRA
-  // LA PÁGINA
+  // LIMPIAR SI REALMENTE
+  // SE CIERRA ESTA PÁGINA
   // --------------------------------
 
   useEffect(() => {
@@ -424,107 +428,474 @@ export default function ProducerSessionPage() {
 
 
   return (
-    <main className="min-h-screen bg-black text-white flex items-center justify-center">
+    <main className="min-h-screen bg-black text-white">
 
-      <div className="w-full max-w-5xl px-8 text-center">
-
-        <div className="mb-4 text-lg text-gray-400">
-          Josefina · Traducción en vivo
-        </div>
-
-
-        <div className="mb-8 text-sm text-gray-500">
-          Sesión: {sessionId}
-        </div>
-
-
-        <div className="mb-10 flex flex-wrap gap-3 justify-center">
-
-          <button
-            onClick={backToSessions}
-            className="rounded border border-gray-600 px-4 py-2"
-          >
-            Volver a sesiones
-          </button>
+      <div className="
+        mx-auto
+        flex
+        min-h-screen
+        w-full
+        max-w-7xl
+        flex-col
+        px-6
+        py-7
+        md:px-10
+      ">
 
 
-          <button
-            onClick={closeSession}
-            disabled={closing}
-            className="rounded border border-red-500 px-4 py-2 text-red-400 disabled:opacity-50"
-          >
-            {closing
-              ? "Cerrando..."
-              : "Cerrar sesión"}
-          </button>
+        {/* HEADER */}
 
-        </div>
+        <header className="
+          flex
+          flex-col
+          gap-5
+          border-b
+          border-gray-900
+          pb-6
+          md:flex-row
+          md:items-center
+          md:justify-between
+        ">
+
+          <div>
+
+            <div className="
+              mb-3
+              flex
+              items-center
+              gap-3
+            ">
+
+              <span
+                className={`
+                  h-2.5
+                  w-2.5
+                  rounded-full
+                  ${
+                    micActive
+                      ? "bg-emerald-400 animate-pulse"
+                      : "bg-gray-600"
+                  }
+                `}
+              />
 
 
-        <div className="mb-12">
+              <span
+                className={`
+                  text-xs
+                  font-semibold
+                  uppercase
+                  tracking-[0.25em]
+                  ${
+                    micActive
+                      ? "text-emerald-300"
+                      : "text-gray-500"
+                  }
+                `}
+              >
+                {micActive
+                  ? "En vivo"
+                  : "Preparada"}
+              </span>
 
-          <div className="text-sm text-gray-400 mb-3">
-            Enlace para los viewers
-          </div>
-
-
-          <div className="flex flex-col md:flex-row gap-3 justify-center items-center">
-
-            <div className="rounded border border-gray-700 px-4 py-3 text-sm text-gray-300 break-all">
-              {viewerUrl}
             </div>
 
 
+            <h1 className="
+              text-3xl
+              font-bold
+              tracking-tight
+              md:text-4xl
+            ">
+              Josefina
+            </h1>
+
+
+            <div className="
+              mt-2
+              flex
+              flex-wrap
+              items-center
+              gap-3
+              text-sm
+              text-gray-500
+            ">
+
+              <span>
+                Sesión
+              </span>
+
+              <span className="
+                rounded-md
+                border
+                border-gray-800
+                bg-gray-950
+                px-2
+                py-1
+                font-mono
+                text-gray-300
+              ">
+                {sessionId}
+              </span>
+
+            </div>
+
+          </div>
+
+
+          <div className="
+            flex
+            flex-wrap
+            gap-3
+          ">
+
             <button
-              onClick={copyViewerLink}
-              className="rounded border border-white px-4 py-3 text-white font-medium"
+              onClick={backToSessions}
+              className="
+                rounded-lg
+                border
+                border-gray-700
+                px-4
+                py-2.5
+                text-sm
+                font-medium
+                text-gray-300
+                transition
+                hover:border-gray-500
+                hover:bg-gray-900
+                hover:text-white
+              "
             >
-              {copied
-                ? "Copiado"
-                : "Copiar enlace"}
+              ← Volver a sesiones
+            </button>
+
+
+            <button
+              onClick={closeSession}
+              disabled={closing}
+              className="
+                rounded-lg
+                border
+                border-red-500/60
+                px-4
+                py-2.5
+                text-sm
+                font-medium
+                text-red-400
+                transition
+                hover:bg-red-500/10
+                disabled:cursor-not-allowed
+                disabled:opacity-40
+              "
+            >
+              {closing
+                ? "Cerrando..."
+                : "Cerrar sesión"}
             </button>
 
           </div>
 
-        </div>
+        </header>
 
 
-        <div className="min-h-48 flex items-center justify-center">
+        {/* LINK AUDIENCIA */}
 
-          <p className="text-4xl md:text-6xl font-semibold leading-tight">
-            {caption}
-          </p>
+        <section className="
+          mt-7
+          rounded-2xl
+          border
+          border-gray-800
+          bg-gray-950/70
+          p-5
+        ">
 
-        </div>
+          <div className="
+            flex
+            flex-col
+            gap-5
+            lg:flex-row
+            lg:items-center
+            lg:justify-between
+          ">
+
+            <div>
+
+              <div className="
+                text-sm
+                font-semibold
+              ">
+                Enlace para la audiencia
+              </div>
 
 
-        <div className="mt-10 flex gap-4 justify-center">
+              <p className="
+                mt-1
+                text-xs
+                text-gray-500
+              ">
+                Compartí este enlace con quienes
+                quieran seguir los subtítulos.
+              </p>
 
-          <button
-            onClick={startMicrophone}
-            disabled={micActive || closing}
-            className="rounded bg-white px-5 py-3 text-black font-medium disabled:opacity-50"
-          >
-            Iniciar micrófono
-          </button>
-
-
-          <button
-            onClick={stopMicrophone}
-            disabled={!micActive}
-            className="rounded border border-white px-5 py-3 text-white font-medium disabled:opacity-50"
-          >
-            Detener micrófono
-          </button>
-
-        </div>
+            </div>
 
 
-        <div className="mt-10 text-sm text-gray-500">
-          {micActive
-            ? "Micrófono activo"
-            : status}
-        </div>
+            <div className="
+              flex
+              min-w-0
+              flex-1
+              flex-col
+              gap-3
+              lg:max-w-3xl
+              lg:flex-row
+            ">
+
+              <div className="
+                min-w-0
+                flex-1
+                rounded-lg
+                border
+                border-gray-800
+                bg-black
+                px-4
+                py-3
+                font-mono
+                text-xs
+                text-gray-400
+                break-all
+              ">
+                {viewerUrl}
+              </div>
+
+
+              <button
+                onClick={copyViewerLink}
+                className="
+                  whitespace-nowrap
+                  rounded-lg
+                  bg-white
+                  px-5
+                  py-3
+                  text-sm
+                  font-semibold
+                  text-black
+                  transition
+                  hover:bg-gray-200
+                "
+              >
+                {copied
+                  ? "Copiado ✓"
+                  : "Copiar enlace"}
+              </button>
+
+            </div>
+
+          </div>
+
+        </section>
+
+
+        {/* SUBTÍTULOS */}
+
+        <section className="
+          flex
+          flex-1
+          items-center
+          justify-center
+          py-10
+        ">
+
+          <div className="
+            w-full
+            max-w-5xl
+            text-center
+          ">
+
+            <div className="
+              mb-6
+              text-xs
+              font-semibold
+              uppercase
+              tracking-[0.28em]
+              text-gray-600
+            ">
+              Traducción en vivo
+            </div>
+
+
+            <div className="
+              rounded-3xl
+              border
+              border-gray-900
+              bg-gray-950/30
+              px-6
+              py-10
+              md:px-10
+              md:py-14
+            ">
+
+              <p className="
+                mx-auto
+                max-w-5xl
+                text-3xl
+                font-semibold
+                leading-[1.15]
+                tracking-tight
+                md:text-5xl
+                lg:text-6xl
+              ">
+                {caption}
+              </p>
+
+            </div>
+
+          </div>
+
+        </section>
+
+
+        {/* CONTROLES */}
+
+        <footer className="
+          border-t
+          border-gray-900
+          pt-6
+        ">
+
+          <div className="
+            flex
+            flex-col
+            gap-6
+            md:flex-row
+            md:items-center
+            md:justify-between
+          ">
+
+
+            {/* ESTADO */}
+
+            <div className="
+              flex
+              items-center
+              gap-4
+            ">
+
+              <div
+                className={`
+                  flex
+                  h-11
+                  w-11
+                  items-center
+                  justify-center
+                  rounded-full
+                  border
+                  ${
+                    micActive
+                      ? "border-emerald-500/40 bg-emerald-500/10"
+                      : "border-gray-800 bg-gray-950"
+                  }
+                `}
+              >
+
+                <span
+                  className={`
+                    h-3
+                    w-3
+                    rounded-full
+                    ${
+                      micActive
+                        ? "bg-emerald-400 animate-pulse"
+                        : "bg-gray-600"
+                    }
+                  `}
+                />
+
+              </div>
+
+
+              <div>
+
+                <div className="
+                  text-sm
+                  font-semibold
+                ">
+                  {micActive
+                    ? "Micrófono activo"
+                    : "Micrófono detenido"}
+                </div>
+
+
+                <div className="
+                  mt-1
+                  text-xs
+                  text-gray-500
+                ">
+                  {status}
+                </div>
+
+              </div>
+
+            </div>
+
+
+            {/* BOTONES */}
+
+            <div className="
+              flex
+              flex-wrap
+              gap-3
+            ">
+
+              <button
+                onClick={startMicrophone}
+                disabled={
+                  micActive ||
+                  closing
+                }
+                className="
+                  rounded-lg
+                  bg-white
+                  px-6
+                  py-3
+                  text-sm
+                  font-semibold
+                  text-black
+                  transition
+                  hover:bg-gray-200
+                  disabled:cursor-not-allowed
+                  disabled:opacity-30
+                "
+              >
+                Iniciar micrófono
+              </button>
+
+
+              <button
+                onClick={stopMicrophone}
+                disabled={!micActive}
+                className="
+                  rounded-lg
+                  border
+                  border-gray-600
+                  px-6
+                  py-3
+                  text-sm
+                  font-semibold
+                  transition
+                  hover:border-white
+                  hover:bg-gray-900
+                  disabled:cursor-not-allowed
+                  disabled:opacity-30
+                "
+              >
+                Detener micrófono
+              </button>
+
+            </div>
+
+          </div>
+
+        </footer>
 
       </div>
 
