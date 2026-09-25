@@ -1,22 +1,38 @@
 import asyncio
 from typing import Dict
 
-from backend.domain.conference_session import ConferenceSession
-from backend.application.session_runtime import SessionRuntime
+from backend.domain.conference_session import (
+    ConferenceSession,
+)
+from backend.application.session_runtime import (
+    SessionRuntime,
+)
 
 
 class SessionManager:
     """
-    Administra las ConferenceSession desde el punto de vista operativo.
+    Administra las ConferenceSession desde el punto
+    de vista operativo.
 
-    Permite crear, consultar, listar, iniciar y detener sesiones.
-    También mantiene la relación entre cada ConferenceSession y
-    los recursos técnicos asociados en SessionRuntime.
+    Mantiene la relación entre el dominio
+    ConferenceSession y los recursos técnicos
+    asociados en SessionRuntime.
     """
 
     def __init__(self):
-        self.sessions: Dict[str, ConferenceSession] = {}
-        self.runtimes: Dict[str, SessionRuntime] = {}
+        self.sessions: Dict[
+            str,
+            ConferenceSession,
+        ] = {}
+
+        self.runtimes: Dict[
+            str,
+            SessionRuntime,
+        ] = {}
+
+    # ---------------------------------
+    # CREAR SESIÓN
+    # ---------------------------------
 
     def create_session(
         self,
@@ -25,65 +41,151 @@ class SessionManager:
         source_language: str,
         target_languages: list[str],
     ) -> ConferenceSession:
-        """
-        Crea una nueva sesión en estado READY.
-        """
 
         session = ConferenceSession(
             id=session_id,
             name=name,
             source_language=source_language,
             target_languages=target_languages,
-            status="READY",
         )
 
         self.sessions[session_id] = session
+
         return session
 
-    def get_session(self, session_id: str) -> ConferenceSession:
-        """
-        Devuelve una sesión existente.
-        """
+    # ---------------------------------
+    # CONSULTAR SESIÓN
+    # ---------------------------------
+
+    def get_session(
+        self,
+        session_id: str,
+    ) -> ConferenceSession:
 
         return self.sessions[session_id]
 
-    def list_sessions(self) -> list[ConferenceSession]:
-        """
-        Devuelve todas las sesiones registradas.
-        """
+    def list_sessions(
+        self,
+    ) -> list[ConferenceSession]:
 
-        return list(self.sessions.values())
+        return list(
+            self.sessions.values()
+        )
 
-    def start_session(self, session_id: str) -> SessionRuntime:
-        """
-        Inicia una sesión y crea sus recursos técnicos de ejecución.
-        """
+    # ---------------------------------
+    # INICIAR SESIÓN
+    # ---------------------------------
 
-        session = self.get_session(session_id)
+    def start_session(
+        self,
+        session_id: str,
+    ) -> SessionRuntime:
+
+        session = self.get_session(
+            session_id
+        )
+
+        # Si ya existe runtime,
+        # no creamos otro.
+        if session_id in self.runtimes:
+            return self.runtimes[
+                session_id
+            ]
 
         runtime = SessionRuntime(
             session_id=session_id,
             audio_queue=asyncio.Queue(),
         )
 
-        self.runtimes[session_id] = runtime
-        session.status = "LIVE"
+        self.runtimes[
+            session_id
+        ] = runtime
+
+        session.start()
 
         return runtime
 
-    def stop_session(self, session_id: str) -> None:
-        """
-        Detiene una sesión.
-        """
+    # ---------------------------------
+    # CERRAR SESIÓN
+    # ---------------------------------
 
-        session = self.get_session(session_id)
-        session.status = "STOPPED"
+    def stop_session(
+        self,
+        session_id: str,
+    ) -> None:
 
-        self.runtimes.pop(session_id, None)
+        session = self.get_session(
+            session_id
+        )
 
-    def get_runtime(self, session_id: str) -> SessionRuntime:
-        """
-        Devuelve el runtime asociado a una sesión activa.
-        """
+        session.close()
 
-        return self.runtimes[session_id]
+        self.runtimes.pop(
+            session_id,
+            None,
+        )
+
+    # ---------------------------------
+    # PRODUCTOR
+    # ---------------------------------
+
+    def connect_producer(
+        self,
+        session_id: str,
+    ) -> None:
+
+        session = self.get_session(
+            session_id
+        )
+
+        session.connect_producer()
+
+    def disconnect_producer(
+        self,
+        session_id: str,
+    ) -> None:
+
+        session = self.get_session(
+            session_id
+        )
+
+        session.disconnect_producer()
+
+    # ---------------------------------
+    # VIEWERS
+    # ---------------------------------
+
+    def add_viewer(
+        self,
+        session_id: str,
+    ) -> None:
+
+        session = self.get_session(
+            session_id
+        )
+
+        session.add_viewer()
+
+    def remove_viewer(
+        self,
+        session_id: str,
+    ) -> None:
+
+        session = self.get_session(
+            session_id
+        )
+
+        session.remove_viewer()
+
+    # ---------------------------------
+    # RUNTIME
+    # ---------------------------------
+
+    def get_runtime(
+        self,
+        session_id: str,
+    ) -> SessionRuntime:
+
+        return self.runtimes[
+            session_id
+        ]

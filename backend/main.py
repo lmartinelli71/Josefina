@@ -204,9 +204,31 @@ async def caption_websocket(
     websocket: WebSocket,
     session_id: str,
 ):
+    # La sesión debería existir.
+    # Si todavía no existe, la creamos para el MVP.
+    if session_id not in session_manager.sessions:
+        session_manager.create_session(
+            session_id=session_id,
+            name="Sesión Josefina",
+            source_language="en",
+            target_languages=["es"],
+        )
+
     await caption_publisher.connect(
         session_id=session_id,
         websocket=websocket,
+    )
+
+    session_manager.add_viewer(
+        session_id
+    )
+
+    print(
+        f"[{session_id}] "
+        f"viewer conectado. "
+        f"Total viewers: "
+        f"{session_manager.get_session(session_id).viewer_count}",
+        flush=True,
     )
 
     try:
@@ -217,9 +239,21 @@ async def caption_websocket(
                 break
 
     finally:
+        session_manager.remove_viewer(
+            session_id
+        )
+
         caption_publisher.disconnect(
             session_id=session_id,
             websocket=websocket,
+        )
+
+        print(
+            f"[{session_id}] "
+            f"viewer desconectado. "
+            f"Total viewers: "
+            f"{session_manager.get_session(session_id).viewer_count}",
+            flush=True,
         )
 
 
@@ -261,6 +295,16 @@ async def audio_websocket(
             session_id
         )
 
+    session_manager.connect_producer(
+        session_id
+    )
+
+    print(
+        f"[{session_id}] "
+        f"productor conectado",
+        flush=True,
+    )
+
     # Iniciamos el consumidor si todavía
     # no está corriendo.
     if (
@@ -283,26 +327,20 @@ async def audio_websocket(
         "-loglevel",
         "error",
 
-        # entrada desde stdin
         "-i",
         "pipe:0",
 
-        # sin video
         "-vn",
 
-        # mono
         "-ac",
         str(PCM_CHANNELS),
 
-        # 16 kHz
         "-ar",
         str(PCM_SAMPLE_RATE),
 
-        # PCM signed 16-bit little endian
         "-f",
         "s16le",
 
-        # salida a stdout
         "pipe:1",
 
         stdin=asyncio.subprocess.PIPE,
@@ -364,7 +402,6 @@ async def audio_websocket(
                 await ffmpeg.stdin.drain()
 
     except WebSocketDisconnect:
-
         print(
             f"[{session_id}] "
             f"cliente de audio desconectado",
@@ -372,8 +409,17 @@ async def audio_websocket(
         )
 
     finally:
+        session_manager.disconnect_producer(
+            session_id
+        )
 
-        # Cerramos la entrada de ffmpeg.
+        print(
+            f"[{session_id}] "
+            f"productor desconectado",
+            flush=True,
+        )
+
+        # Cerramos la entrada de ffmpeg
         if ffmpeg.stdin is not None:
             try:
                 ffmpeg.stdin.close()
@@ -381,12 +427,13 @@ async def audio_websocket(
                 pass
 
         # Esperamos que termine de procesar
-        # lo que quede en el buffer.
+        # lo que quede en el buffer
         try:
             await asyncio.wait_for(
                 ffmpeg.wait(),
                 timeout=2.0,
             )
+
         except asyncio.TimeoutError:
             ffmpeg.kill()
             await ffmpeg.wait()
@@ -396,5 +443,6 @@ async def audio_websocket(
 
         try:
             await pcm_task
+
         except asyncio.CancelledError:
             pass

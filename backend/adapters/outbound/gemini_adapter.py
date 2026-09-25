@@ -6,7 +6,6 @@ from google import genai
 from google.genai import errors, types
 
 from backend.ports.speech_engine import SpeechEngine
-from backend.domain.conference_session import ConferenceSession
 
 
 class GeminiAdapter(SpeechEngine):
@@ -153,13 +152,10 @@ TEXT:
 
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
-
             input_audio_transcription=
                 types.AudioTranscriptionConfig(),
-
             output_audio_transcription=
                 types.AudioTranscriptionConfig(),
-
             translation_config=
                 types.TranslationConfig(
                     target_language_code=target_language,
@@ -210,12 +206,6 @@ TEXT:
         """
         Produce transcripciones parciales y finales
         desde Gemini Live Transcribe.
-
-        Devuelve:
-        {
-            "type": "interim" | "final",
-            "text": "..."
-        }
         """
 
         async for message in live_session.receive():
@@ -273,19 +263,6 @@ TEXT:
     ):
         """
         Produce eventos normalizados de Gemini Live Translate.
-
-        Devuelve:
-        {
-            "type": "source",
-            "text": "..."
-        }
-
-        o:
-
-        {
-            "type": "translation",
-            "text": "..."
-        }
         """
 
         async for message in live_session.receive():
@@ -375,17 +352,3 @@ TEXT:
                 await asyncio.sleep(wait_seconds)
 
         raise last_error
-
-    async def send_audio(
-        self,
-        session: ConferenceSession,
-        chunk: bytes,
-    ) -> None:
-        """
-        Método requerido por SpeechEngine.
-
-        Más adelante conectaremos este método con
-        SessionRuntime y la conexión Live de cada sesión.
-        """
-
-        pass

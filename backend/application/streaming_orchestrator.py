@@ -3,7 +3,7 @@ import asyncio
 from backend.application.session_manager import SessionManager
 from backend.application.caption_assembler import CaptionAssembler
 from backend.ports.caption_publisher import CaptionPublisher
-
+from backend.ports.speech_engine import SpeechEngine
 
 class StreamingOrchestrator:
     """
@@ -17,9 +17,9 @@ class StreamingOrchestrator:
         ↓
     CaptionAssembler
         ↓
-    subtítulo traducido en vivo
+    CaptionSegment LIVE / CLOSED
         ↓
-    CaptionPublisher (opcional)
+    CaptionPublisher
         ↓
     navegador
     """
@@ -27,7 +27,7 @@ class StreamingOrchestrator:
     def __init__(
         self,
         session_manager: SessionManager,
-        speech_engine,
+        speech_engine: SpeechEngine,
         caption_publisher: CaptionPublisher | None = None,
     ):
         self.session_manager = session_manager
@@ -38,7 +38,6 @@ class StreamingOrchestrator:
         self,
         session_id: str,
     ):
-
         session = self.session_manager.get_session(
             session_id
         )
@@ -56,7 +55,10 @@ class StreamingOrchestrator:
             session.target_languages[0]
         )
 
-        assembler = CaptionAssembler()
+        assembler = CaptionAssembler(
+            session_id=session_id,
+            language=target_language,
+        )
 
         async with (
             self.speech_engine
@@ -65,32 +67,22 @@ class StreamingOrchestrator:
             )
         ) as live_session:
 
-            runtime.speech_connection = (
-                live_session
-            )
+            runtime.speech_connection = live_session
 
-            receiver_task = (
-                asyncio.create_task(
-                    self.receive_translations(
-                        session_id=session_id,
-                        live_session=live_session,
-                        assembler=assembler,
-                    )
+            receiver_task = asyncio.create_task(
+                self.receive_translations(
+                    session_id=session_id,
+                    live_session=live_session,
+                    assembler=assembler,
+                    target_language=target_language,
                 )
             )
 
             try:
-
                 while True:
-
-                    chunk = (
-                        await runtime
-                        .audio_queue
-                        .get()
-                    )
+                    chunk = await runtime.audio_queue.get()
 
                     try:
-
                         await (
                             self.speech_engine
                             .send_live_audio(
@@ -100,11 +92,9 @@ class StreamingOrchestrator:
                         )
 
                     finally:
-
                         runtime.audio_queue.task_done()
 
             except asyncio.CancelledError:
-
                 await (
                     self.speech_engine
                     .end_live_audio(
@@ -115,7 +105,6 @@ class StreamingOrchestrator:
                 raise
 
             finally:
-
                 receiver_task.cancel()
 
                 try:
@@ -131,6 +120,7 @@ class StreamingOrchestrator:
         session_id: str,
         live_session,
         assembler: CaptionAssembler,
+        target_language: str,
     ):
         """
         Recibe continuamente los eventos de Gemini.
@@ -139,12 +129,8 @@ class StreamingOrchestrator:
 
         La traducción:
         - alimenta CaptionAssembler;
-        - sigue apareciendo en consola;
-        - si existe un CaptionPublisher,
-          también se envía al navegador.
-
-        La publicación al navegador se realiza
-        fuera del camino crítico de Gemini.
+        - produce CaptionSegment;
+        - publica segmentos LIVE y CLOSED.
         """
 
         async for event in (
@@ -155,8 +141,6 @@ class StreamingOrchestrator:
         ):
 
             if event["type"] == "source":
-
-                # Solo diagnóstico.
                 print(
                     f"\n[{session_id}] "
                     f"ORIGINAL:\n"
@@ -166,24 +150,27 @@ class StreamingOrchestrator:
 
             elif event["type"] == "translation":
 
-                result = (
-                    assembler.add_translation(
-                        event["text"]
-                    )
+                result = assembler.add_translation(
+                    event["text"]
                 )
 
                 # ---------------------------------
                 # SEGMENTOS CERRADOS
                 # ---------------------------------
 
-                for closed_text in (
+                for segment in (
                     result["closed_segments"]
                 ):
+
+                    text = segment.texts.get(
+                        target_language,
+                        "",
+                    )
 
                     print(
                         f"\n[{session_id}] "
                         f"SUBTÍTULO [CERRADO]:\n"
-                        f"{closed_text}",
+                        f"{text}",
                         flush=True,
                     )
 
@@ -191,8 +178,10 @@ class StreamingOrchestrator:
                         session_id=session_id,
                         payload={
                             "type": "caption",
-                            "status": "closed",
-                            "text": closed_text,
+                            "status": segment.status.value.lower(),
+                            "text": text,
+                            "start_time": segment.start_time,
+                            "end_time": segment.end_time,
                         },
                     )
 
@@ -200,23 +189,33 @@ class StreamingOrchestrator:
                 # SUBTÍTULO LIVE
                 # ---------------------------------
 
-                if result["current"]:
+                current_segment = result["current"]
 
-                    print(
-                        f"\n[{session_id}] "
-                        f"SUBTÍTULO [LIVE]:\n"
-                        f"{result['current']}",
-                        flush=True,
+                if current_segment is not None:
+
+                    text = current_segment.texts.get(
+                        target_language,
+                        "",
                     )
 
-                    self._publish_without_blocking(
-                        session_id=session_id,
-                        payload={
-                            "type": "caption",
-                            "status": "live",
-                            "text": result["current"],
-                        },
-                    )
+                    if text:
+                        print(
+                            f"\n[{session_id}] "
+                            f"SUBTÍTULO [LIVE]:\n"
+                            f"{text}",
+                            flush=True,
+                        )
+
+                        self._publish_without_blocking(
+                            session_id=session_id,
+                            payload={
+                                "type": "caption",
+                                "status": current_segment.status.value.lower(),
+                                "text": text,
+                                "start_time": current_segment.start_time,
+                                "end_time": current_segment.end_time,
+                            },
+                        )
 
     def _publish_without_blocking(
         self,
