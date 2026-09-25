@@ -42,7 +42,9 @@ The current prototype supports:
 - multiple viewers per session;
 - a production dashboard;
 - live producer/session status;
-- remote session shutdown from the production console.
+- remote session shutdown from the production console;
+- containerized frontend and backend;
+- one-command local deployment with Docker Compose.
 
 Viewers only need a browser and the session link.
 
@@ -241,7 +243,7 @@ Session C
 
 This isolates live sessions at the application level and provides a clear path toward horizontal scaling.
 
-The current hackathon MVP runs on a single backend process and has not been load-tested at large scale, so no specific concurrency limit is claimed.
+The current hackathon MVP has not been load-tested at large scale, so no specific concurrency limit is claimed.
 
 ---
 
@@ -308,23 +310,10 @@ The audience receives translated captions without access to production controls.
 - WebSockets
 - Tailwind CSS
 
----
+### Deployment
 
-## Requirements
-
-Before running Josefina locally, install:
-
-- Python 3
-- Node.js
-- npm
-- FFmpeg
-- a Gemini API key
-
-Check FFmpeg:
-
-```bash
-ffmpeg -version
-```
+- Docker
+- Docker Compose
 
 ---
 
@@ -351,21 +340,82 @@ __pycache__/
 
 ---
 
-## Running the backend
+## Quick start with Docker Compose
+
+The easiest way to run Josefina is with Docker Compose.
+
+### Requirements
+
+You only need:
+
+- Docker
+- Docker Compose
+- a Gemini API key
 
 From the project root:
+
+```bash
+docker compose up --build
+```
+
+Docker Compose starts:
+
+- the FastAPI backend on port `8000`;
+- the Next.js frontend on port `3000`;
+- FFmpeg inside the backend container.
+
+Then open:
+
+```text
+http://localhost:3000/producer
+```
+
+Backend health check:
+
+```text
+http://localhost:8000/health
+```
+
+A successful response looks like:
+
+```json
+{
+  "status": "ok",
+  "service": "Josefina"
+}
+```
+
+To stop Josefina:
+
+```bash
+docker compose down
+```
+
+---
+
+## Running without Docker
+
+Docker Compose is the recommended local deployment path, but the services can also be run manually.
+
+### Backend
+
+Create and activate a Python virtual environment:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-Install the Python dependencies used by the project.
-
-If the repository contains `requirements.txt`:
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
+```
+
+Make sure FFmpeg is installed on the host:
+
+```bash
+ffmpeg -version
 ```
 
 Start the API:
@@ -374,21 +424,7 @@ Start the API:
 uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Backend:
-
-```text
-http://localhost:8000
-```
-
-Health check:
-
-```text
-http://localhost:8000/health
-```
-
----
-
-## Running the frontend
+### Frontend
 
 Open another terminal:
 
@@ -441,7 +477,7 @@ Translation quality depends on factors such as:
 - speech model performance;
 - technical vocabulary.
 
-For the Vibeathon demo, the system is tested with both normal speech and technical terminology.
+For the Vibeathon demo, the system is intended to be demonstrated with both normal speech and technical terminology.
 
 ---
 
@@ -467,7 +503,7 @@ The system does not wait for an entire talk or recording to finish before genera
 
 ## Scalability
 
-The MVP currently runs on a single backend instance, but the session model is isolated by design.
+The current MVP isolates sessions by design.
 
 Each active session has its own:
 
@@ -485,20 +521,34 @@ A production evolution could distribute independent sessions across multiple bac
 
 ## Deployment
 
-The hackathon version runs the backend and frontend as separate local processes.
+Josefina now includes a containerized deployment for both frontend and backend.
 
-This was an intentional decision to prioritize a stable, working, low-latency end-to-end flow during the Vibeathon.
+The project includes:
 
-A production version could add:
+```text
+Josefina/
+├── backend/
+│   └── Dockerfile
+├── frontend/
+│   └── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+└── .env
+```
 
-- Docker;
-- Docker Compose;
-- a reverse proxy;
-- persistent session state;
-- multiple backend instances;
-- centralized observability.
+The backend image installs FFmpeg and Python dependencies, while the frontend runs Next.js in its own container.
 
-A possible production topology is:
+The complete MVP can be started with:
+
+```bash
+docker compose up --build
+```
+
+This reduces local setup and provides a reproducible way to run the same frontend/backend stack.
+
+The current Compose deployment is intentionally simple: it contains the services needed for the hackathon MVP and avoids adding unnecessary infrastructure before it is required.
+
+A future production topology could add a reverse proxy, distributed state, observability, and multiple backend instances:
 
 ```text
 Internet
@@ -528,7 +578,8 @@ The MVP models a real event-production workflow:
 - viewers receive a shareable link;
 - audience users do not need an account or installation;
 - production and audience interfaces are separated;
-- sessions can be centrally closed from the production console.
+- sessions can be centrally closed from the production console;
+- the full stack can be started using Docker Compose.
 
 The focus is on making real-time multilingual captions operationally useful during an event.
 
@@ -547,7 +598,7 @@ Current limitations include:
 - there is no authentication yet;
 - there is no distributed session registry yet;
 - the project has not been load-tested at production scale;
-- Docker deployment is not part of the current MVP.
+- the current Docker Compose setup is intended for the MVP rather than a distributed production cluster.
 
 These choices were intentional to prioritize the complete real-time user flow during the Vibeathon.
 
@@ -562,7 +613,8 @@ Possible next steps include:
 - persistent session storage;
 - Redis-based distributed session state;
 - horizontal backend scaling;
-- Docker and Docker Compose deployment;
+- production-ready Docker images and deployment profiles;
+- reverse proxy and TLS termination;
 - producer authentication;
 - event and room management;
 - downloadable transcripts;
@@ -578,7 +630,7 @@ Possible next steps include:
 
 Josefina was created during the **Nerdearla Vibeathon 2026**.
 
-The project explores how streaming architecture, browser-native audio capture, and modern speech models can make multilingual live events more accessible.
+The project explores how streaming architecture, browser-native audio capture, modern speech models, and a lightweight production workflow can make multilingual live events more accessible.
 
 ---
 
