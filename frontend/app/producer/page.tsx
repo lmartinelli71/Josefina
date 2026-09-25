@@ -5,10 +5,6 @@ import {
   useState,
 } from "react";
 
-import {
-  useRouter,
-} from "next/navigation";
-
 
 type SessionInfo = {
   session_id: string;
@@ -22,8 +18,6 @@ type SessionInfo = {
 
 
 export default function ProducerHomePage() {
-  const router = useRouter();
-
   const [sessions, setSessions] =
     useState<SessionInfo[]>([]);
 
@@ -76,17 +70,17 @@ export default function ProducerHomePage() {
 
 
   // --------------------------------
-  // CARGAR AL ENTRAR
-  // Y ACTUALIZAR PERIÓDICAMENTE
+  // REFRESCO AUTOMÁTICO
   // --------------------------------
 
   useEffect(() => {
     loadSessions();
 
-    const interval = setInterval(
-      loadSessions,
-      2000
-    );
+    const interval =
+      setInterval(
+        loadSessions,
+        2000
+      );
 
     return () => {
       clearInterval(interval);
@@ -137,14 +131,15 @@ export default function ProducerHomePage() {
 
 
   // --------------------------------
-  // ENTRAR A SESIÓN
+  // ABRIR PRODUCTOR
   // --------------------------------
 
   const openProducer = (
     sessionId: string
   ) => {
-    router.push(
-      `/session/${sessionId}/producer`
+    window.open(
+      `/session/${sessionId}/producer`,
+      "_blank"
     );
   };
 
@@ -202,103 +197,206 @@ export default function ProducerHomePage() {
 
 
   // --------------------------------
-  // TEXTO DEL ESTADO
+  // ESTADO
   // --------------------------------
 
-  const getStatusText = (
+  const getStatus = (
     session: SessionInfo
   ) => {
     if (
       session.status === "CLOSED"
     ) {
-      return "Cerrada";
+      return {
+        text: "Cerrada",
+        badge:
+          "border-red-500/30 bg-red-500/10 text-red-300",
+        dot:
+          "bg-red-400",
+      };
     }
 
     if (
       session.producer_connected
     ) {
-      return "Transmitiendo";
+      return {
+        text: "En vivo",
+        badge:
+          "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
+        dot:
+          "bg-emerald-400 animate-pulse",
+      };
     }
 
-    return "Sin transmisión";
+    return {
+      text: "Lista",
+      badge:
+        "border-sky-500/30 bg-sky-500/10 text-sky-300",
+      dot:
+        "bg-sky-400",
+    };
   };
+
+
+  // --------------------------------
+  // MÉTRICAS
+  // --------------------------------
+
+  const liveSessions =
+    sessions.filter(
+      (session) =>
+        session.producer_connected &&
+        session.status !== "CLOSED"
+    ).length;
+
+  const closedSessions =
+    sessions.filter(
+      (session) =>
+        session.status === "CLOSED"
+    ).length;
+
+  const totalViewers =
+    sessions.reduce(
+      (total, session) =>
+        total + session.viewer_count,
+      0
+    );
 
 
   return (
     <main className="min-h-screen bg-black text-white">
 
-      <div className="w-full max-w-5xl mx-auto px-8 py-12">
-
-        <div className="text-center mb-12">
-
-          <h1 className="text-5xl font-bold mb-4">
-            Josefina
-          </h1>
-
-          <p className="text-xl text-gray-400">
-            Panel de producción
-          </p>
-
-        </div>
+      <div className="mx-auto w-full max-w-6xl px-6 py-10 md:px-10">
 
 
-        <div className="text-center mb-12">
+        {/* HEADER */}
+
+        <header className="mb-10 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
+
+          <div>
+
+            <div className="mb-2 text-sm font-medium uppercase tracking-[0.25em] text-sky-400">
+              Live translation platform
+            </div>
+
+            <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
+              Josefina
+            </h1>
+
+            <p className="mt-3 max-w-xl text-gray-400">
+              Centro de producción para sesiones
+              de traducción y subtítulos en vivo.
+            </p>
+
+          </div>
+
 
           <button
             onClick={createSession}
             disabled={creating}
             className="
+              rounded-xl
               bg-white
-              text-black
-              px-8
-              py-4
-              rounded-lg
-              text-lg
+              px-6
+              py-3
               font-semibold
+              text-black
+              shadow-lg
+              transition
+              hover:bg-gray-200
+              disabled:cursor-not-allowed
               disabled:opacity-50
             "
           >
             {creating
-              ? "Creando sesión..."
-              : "Crear nueva sesión"}
+              ? "Creando..."
+              : "+ Crear nueva sesión"}
           </button>
 
-        </div>
+        </header>
 
+
+        {/* MÉTRICAS */}
+
+        <section className="mb-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+
+          <MetricCard
+            label="Sesiones"
+            value={sessions.length}
+          />
+
+          <MetricCard
+            label="En vivo"
+            value={liveSessions}
+          />
+
+          <MetricCard
+            label="Viewers"
+            value={totalViewers}
+          />
+
+          <MetricCard
+            label="Cerradas"
+            value={closedSessions}
+          />
+
+        </section>
+
+
+        {/* ERROR */}
 
         {error && (
-          <div className="text-center mb-8 text-red-400">
+          <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 px-5 py-4 text-red-300">
             {error}
           </div>
         )}
 
 
-        {loading && (
-          <div className="text-center text-gray-500">
-            Cargando sesiones...
+        {/* SESIONES */}
+
+        <section>
+
+          <div className="mb-5 flex items-center justify-between">
+
+            <div>
+              <h2 className="text-2xl font-semibold">
+                Sesiones
+              </h2>
+
+              <p className="mt-1 text-sm text-gray-500">
+                Administración de transmisiones activas y finalizadas
+              </p>
+            </div>
+
           </div>
-        )}
 
 
-        {!loading &&
-          sessions.length === 0 && (
-            <div className="text-center text-gray-500">
-              No hay sesiones creadas.
+          {loading && (
+            <div className="rounded-2xl border border-gray-800 bg-gray-950 p-10 text-center text-gray-500">
+              Cargando sesiones...
             </div>
           )}
 
 
-        {!loading &&
-          sessions.length > 0 && (
+          {!loading &&
+            sessions.length === 0 && (
+              <div className="rounded-2xl border border-dashed border-gray-700 bg-gray-950/50 p-14 text-center">
 
-            <div>
+                <div className="mb-3 text-lg font-medium">
+                  Todavía no hay sesiones
+                </div>
 
-              <h2 className="text-2xl font-semibold mb-6">
-                Sesiones
-              </h2>
+                <p className="text-sm text-gray-500">
+                  Creá una sesión para comenzar una transmisión.
+                </p>
+
+              </div>
+            )}
 
 
-              <div className="space-y-5">
+          {!loading &&
+            sessions.length > 0 && (
+
+              <div className="space-y-4">
 
                 {sessions.map(
                   (session) => {
@@ -307,60 +405,107 @@ export default function ProducerHomePage() {
                       session.status ===
                       "CLOSED";
 
+                    const state =
+                      getStatus(session);
+
                     return (
-                      <div
+                      <article
                         key={
                           session.session_id
                         }
-                        className="
+                        className={`
+                          rounded-2xl
                           border
-                          border-gray-700
-                          rounded-lg
                           p-6
-                        "
+                          transition
+                          ${
+                            closed
+                              ? "border-gray-800 bg-gray-950/50 opacity-65"
+                              : "border-gray-800 bg-gray-950 hover:border-gray-700"
+                          }
+                        `}
                       >
 
-                        <div className="
-                          flex
-                          flex-col
-                          md:flex-row
-                          md:items-center
-                          md:justify-between
-                          gap-5
-                        ">
+                        <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
 
-                          <div>
 
-                            <div className="text-sm text-gray-500">
-                              Sesión
-                            </div>
+                          {/* INFO */}
 
-                            <div className="text-xl font-semibold">
-                              {
-                                session.session_id
-                              }
-                            </div>
+                          <div className="min-w-0">
 
-                            <div className="mt-2 text-sm text-gray-400">
-                              Estado:{" "}
-                              <span className="text-white">
+                            <div className="mb-3 flex flex-wrap items-center gap-3">
+
+                              <h3 className="text-xl font-semibold tracking-wide">
                                 {
-                                  getStatusText(
-                                    session
-                                  )
+                                  session.session_id
                                 }
+                              </h3>
+
+                              <span
+                                className={`
+                                  inline-flex
+                                  items-center
+                                  gap-2
+                                  rounded-full
+                                  border
+                                  px-3
+                                  py-1
+                                  text-xs
+                                  font-semibold
+                                  ${state.badge}
+                                `}
+                              >
+                                <span
+                                  className={`
+                                    h-2
+                                    w-2
+                                    rounded-full
+                                    ${state.dot}
+                                  `}
+                                />
+
+                                {state.text}
+
                               </span>
+
                             </div>
 
-                            <div className="mt-1 text-sm text-gray-500">
-                              Viewers:{" "}
-                              {
-                                session.viewer_count
-                              }
+
+                            <div className="flex flex-wrap gap-x-7 gap-y-2 text-sm text-gray-400">
+
+                              <div>
+                                <span className="text-gray-600">
+                                  Viewers
+                                </span>
+
+                                <span className="ml-2 font-medium text-white">
+                                  {
+                                    session.viewer_count
+                                  }
+                                </span>
+                              </div>
+
+
+                              <div>
+                                <span className="text-gray-600">
+                                  Productor
+                                </span>
+
+                                <span className="ml-2 font-medium text-white">
+                                  {
+                                    session.producer_connected
+                                      ? "Conectado"
+                                      : "Desconectado"
+                                  }
+                                </span>
+                              </div>
+
                             </div>
 
                           </div>
 
+
+                          {/* ACCIONES */}
 
                           <div className="flex flex-wrap gap-3">
 
@@ -372,13 +517,17 @@ export default function ProducerHomePage() {
                               }
                               disabled={closed}
                               className="
+                                rounded-lg
                                 bg-white
-                                text-black
                                 px-4
-                                py-2
-                                rounded
-                                font-medium
-                                disabled:opacity-40
+                                py-2.5
+                                text-sm
+                                font-semibold
+                                text-black
+                                transition
+                                hover:bg-gray-200
+                                disabled:cursor-not-allowed
+                                disabled:opacity-30
                               "
                             >
                               Entrar como productor
@@ -393,13 +542,19 @@ export default function ProducerHomePage() {
                               }
                               disabled={closed}
                               className="
+                                rounded-lg
                                 border
-                                border-white
+                                border-gray-600
                                 px-4
-                                py-2
-                                rounded
+                                py-2.5
+                                text-sm
                                 font-medium
-                                disabled:opacity-40
+                                text-gray-200
+                                transition
+                                hover:border-white
+                                hover:text-white
+                                disabled:cursor-not-allowed
+                                disabled:opacity-30
                               "
                             >
                               Abrir viewer
@@ -414,14 +569,18 @@ export default function ProducerHomePage() {
                               }
                               disabled={closed}
                               className="
+                                rounded-lg
                                 border
-                                border-red-500
-                                text-red-400
+                                border-red-500/60
                                 px-4
-                                py-2
-                                rounded
+                                py-2.5
+                                text-sm
                                 font-medium
-                                disabled:opacity-40
+                                text-red-400
+                                transition
+                                hover:bg-red-500/10
+                                disabled:cursor-not-allowed
+                                disabled:opacity-30
                               "
                             >
                               {closed
@@ -433,18 +592,52 @@ export default function ProducerHomePage() {
 
                         </div>
 
-                      </div>
+                      </article>
                     );
                   }
                 )}
 
               </div>
+            )}
 
-            </div>
-          )}
+        </section>
+
+
+        {/* FOOTER */}
+
+        <footer className="mt-12 border-t border-gray-900 pt-6 text-center text-xs text-gray-600">
+          Josefina · Real-time translated captions
+        </footer>
 
       </div>
 
     </main>
+  );
+}
+
+
+// --------------------------------
+// TARJETA MÉTRICA
+// --------------------------------
+
+function MetricCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: number;
+}) {
+  return (
+    <div className="rounded-2xl border border-gray-800 bg-gray-950 p-5">
+
+      <div className="text-sm text-gray-500">
+        {label}
+      </div>
+
+      <div className="mt-2 text-3xl font-semibold">
+        {value}
+      </div>
+
+    </div>
   );
 }
